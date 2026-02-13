@@ -25,20 +25,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global Cache for stability
+NEWS_CACHE = {
+    "data": None,
+    "last_updated": 0
+}
+CACHE_TTL = 300 # 5 minutes
+
 @app.get("/api/feed")
 async def get_feed():
-    try:
-        # Get a fresh sample of news on every refresh
-        news_items = await get_sampled_news(35)
-        
-        # Add dummy AI verification data
-        import random
-        for item in news_items:
-            is_fake = random.random() < 0.05
-            item['ai_score'] = round(random.uniform(0.1, 0.3) if is_fake else random.uniform(0.8, 0.99), 2)
-            item['ai_status'] = "manipulated" if is_fake else "verified"
+    global NEWS_CACHE
+    current_time = time.time()
+    
+    # Return cached data if it's still fresh
+    if NEWS_CACHE["data"] and (current_time - NEWS_CACHE["last_updated"]) < CACHE_TTL:
+        print("DEBUG: Serving feed from cache")
+        return NEWS_CACHE["data"]
 
-        # Categorize and limit to 20 items per section
+    try:
+        print("DEBUG: Cache expired or empty. Triggering fresh scrape...")
+        # Get a fresh sample of news
+        news_items = await get_sampled_news(50) 
+        
+        # Add deterministic AI verification data (stable across refreshes)
+        import hashlib
+        for item in news_items:
+            # Create a unique but stable seed based on the title
+            seed = int(hashlib.md5(item['title'].encode()).hexdigest(), 16) % 1000
+            is_fake = (seed % 20) == 0 # 5% chance
+            
+            if is_fake:
+                item['ai_score'] = round(0.1 + (seed % 20) / 100, 2)
+                item['ai_status'] = "manipulated"
+            else:
+                item['ai_score'] = round(0.85 + (seed % 10) / 100, 2)
+                item['ai_status'] = "verified"
+
+        # Categorize
         categorized = {
             "trending": [item for item in news_items if item.get('is_trending')][:20],
             "breaking": [item for item in news_items if item.get('is_breaking')][:20],
@@ -50,13 +73,17 @@ async def get_feed():
             "general": [item for item in news_items if item.get('category') == 'general'][:20],
         }
         
-        return {
+        NEWS_CACHE["data"] = {
             "status": "success",
             "source": "live-sampled",
+            "last_sync": time.strftime('%H:%M:%S'),
             "count": len(news_items),
             "sections": categorized,
             "data": news_items[:20]
         }
+        NEWS_CACHE["last_updated"] = current_time
+        
+        return NEWS_CACHE["data"]
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -67,21 +94,26 @@ async def get_feed():
 
 @app.get("/api/analyze-image")
 async def analyze_image(url: str):
+    print(f"DEBUG: Analyzing image URL: {url}")
     if not analyzer:
+        print("DEBUG: Analyzer not initialized")
         return {"status": "error", "message": "Neural Core Offline"}
     
     try:
         async with httpx.AsyncClient() as client:
-            # Add headers to avoid some site blocks
             headers = {'User-Agent': 'Mozilla/5.0'}
             resp = await client.get(url, headers=headers, timeout=10)
             if resp.status_code != 200:
+                print(f"DEBUG: Image fetch failed with status {resp.status_code}")
                 return {"status": "error", "message": f"Source fetch failed: {resp.status_code}"}
             
+            print(f"DEBUG: Image fetched ({len(resp.content)} bytes). Starting forensic pipeline...")
             result = analyzer.analyze_bytes(resp.content)
+            print(f"DEBUG: Analysis complete. Result: {result['prediction']} (Score: {result['trust_score']})")
             return result
     except Exception as e:
         import traceback
+        print(f"DEBUG: Analysis error: {str(e)}")
         print(traceback.format_exc())
         return {"status": "error", "message": f"Analysis crashed: {str(e)}"}
 

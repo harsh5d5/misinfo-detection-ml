@@ -52,13 +52,20 @@ function AnalyticsContent() {
     }, [isReport, image]);
 
     if (isReport) {
-        // Use live analysis results if available, otherwise fallback to URL params
-        const liveScore = analysisResult?.status === 'success' ? analysisResult.trust_score : parseFloat(score || '0');
-        const liveStatus = analysisResult?.status === 'success' ? (analysisResult.prediction === 'FAKE' ? 'manipulated' : 'verified') : status;
+        // Correct logic to sync with the new AI engine verdict strings
+        const aiVerdict = analysisResult?.prediction || "";
+        const isFake = aiVerdict === "FAKE / MANIPULATED";
+        const isEdited = aiVerdict === "PROCESSED / EDITED";
 
-        const trustScore = liveScore;
+        const liveStatus = analysisResult?.status === 'success'
+            ? (isFake ? 'manipulated' : (isEdited ? 'uncertain' : 'verified'))
+            : status;
+
+        const trustScore = analysisResult?.status === 'success' ? analysisResult.trust_score : parseFloat(score || '0');
         const isManipulated = liveStatus === 'manipulated';
-        const accentColor = isManipulated ? '#ef4444' : '#10b981';
+        const isUncertain = liveStatus === 'uncertain';
+
+        const accentColor = isManipulated ? '#ef4444' : (isUncertain ? '#f59e0b' : '#10b981');
 
         let domain = 'unknown-source.net';
         try { if (image) domain = new URL(image).hostname; } catch (e) { }
@@ -72,7 +79,15 @@ function AnalyticsContent() {
                         <div>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                                 <div style={{ padding: '0.4rem', background: `${accentColor}22`, borderRadius: '8px' }}>
-                                    {analyzing ? <RefreshCw className="animate-spin" color="#3b82f6" size={20} /> : (isManipulated ? <ShieldAlert color={accentColor} size={20} /> : <ShieldCheck color={accentColor} size={20} />)}
+                                    {analyzing ? (
+                                        <RefreshCw className="animate-spin" color="#3b82f6" size={20} />
+                                    ) : isManipulated ? (
+                                        <ShieldAlert color={accentColor} size={20} />
+                                    ) : isUncertain ? (
+                                        <AlertCircle color={accentColor} size={20} />
+                                    ) : (
+                                        <ShieldCheck color={accentColor} size={20} />
+                                    )}
                                 </div>
                                 <span style={{ fontSize: '0.75rem', fontWeight: 900, color: analyzing ? '#3b82f6' : accentColor, letterSpacing: '0.2em' }}>
                                     {analyzing ? 'NEURAL SCAN IN PROGRESS' : 'COMBINED TRUST ARCHITECTURE'}
