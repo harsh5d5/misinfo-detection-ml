@@ -6,8 +6,50 @@ import os
 from datetime import datetime
 import time
 
+import re
+
 # Path to the feeds file
 FEEDS_FILE = os.path.join(os.path.dirname(__file__), '..', 'scrap', 'xml_feeds.txt')
+
+def upscale_image_url(url):
+    """
+    Transforms common news thumbnail URLs into high-resolution versions 
+    to provide better pixel data for the Forensic AI.
+    """
+    if not url:
+        return url
+        
+    # 1. Daily Mail: Replace -m- (medium) or -a- (article) with -v- (very large)
+    if "dailymail.co.uk" in url:
+        url = re.sub(r'-(image|article)-[ma]-', r'-\1-v-', url)
+        
+    # 2. Guardian: Force width and higher quality
+    elif "guim.co.uk" in url:
+        url = re.sub(r'width=\d+', 'width=1200', url)
+        url = re.sub(r'quality=\d+', 'quality=100', url)
+        
+    # 3. NY Times: Squashed thumbnails to superJumbo
+    elif "nyt.com" in url:
+        url = url.replace("mediumSquareAt3X", "superJumbo")
+        url = url.replace("thumbStandard", "superJumbo")
+        
+    # 4. Mirror / Reach PLC (Alternates)
+    elif "i2-prod" in url:
+        url = re.sub(r'/ALTERNATES/s\d+/', '/ALTERNATES/s1200/', url)
+        
+    # 5. WordPress / Generic Cloudfront (Dimension strip)
+    # Replaces things like image-150x150.jpg with image.jpg
+    url = re.sub(r'-\d+x\d+(\.(jpg|jpeg|png|webp))', r'\1', url)
+    
+    # 6. Yahoo / Yahoo Finance
+    if "s.yimg.com" in url:
+        url = re.sub(r'--/.*--/', '--/resizer/2.0/--/', url) # Reset resizer if present
+        
+    # 7. BBC News
+    if "bbci.co.uk" in url:
+        url = re.sub(r'/standard/\d+/', '/standard/1200/', url)
+        
+    return url
 
 async def fetch_feed(client, url):
     """Asynchronously fetch a single RSS feed."""
@@ -87,7 +129,25 @@ def get_category(url, title, summary):
     # Default is 'general'
     return "general"
 
-async def parse_feed(url, html_content):
+async def verify_image_url(client, upscaled_url, original_url):
+    """
+    Tries to see if the upscaled URL exists. Falls back to original if it fails.
+    """
+    if upscaled_url == original_url:
+        return original_url
+        
+    try:
+        # Perform a quick HEAD request to check for 404/Exists
+        # We use a short timeout as this is a fallback check
+        resp = await client.head(upscaled_url, timeout=3.0, follow_redirects=True)
+        if resp.status_code == 200:
+            return upscaled_url
+    except Exception:
+        pass
+        
+    return original_url
+
+async def parse_feed(url, html_content, client=None):
     """Parse the RSS feed content and extract news items."""
     if not html_content:
         return []
@@ -106,7 +166,16 @@ async def parse_feed(url, html_content):
         if is_bengali:
             continue
 
-        image_url = extract_image(entry)
+        orig_image = extract_image(entry)
+        
+        # UPSCALE IMAGE: Convert thumbnails to High-Res for better DNA forensics
+        upscaled = upscale_image_url(orig_image)
+        
+        # STEP 4: Smart Verification & Fallback
+        if client and upscaled != orig_image:
+            image_url = await verify_image_url(client, upscaled, orig_image)
+        else:
+            image_url = upscaled
         
         # MANDATORY IMAGE FILTER: Discard any post that doesn't have a valid image
         if not image_url or not (image_url.startswith('http')):
@@ -191,7 +260,7 @@ async def scrape_subset(urls):
         responses = await asyncio.gather(*fetch_tasks)
         
         # Parse all successfully fetched feeds
-        parse_tasks = [parse_feed(url, content) for url, content in zip(urls, responses)]
+        parse_tasks = [parse_feed(url, content, client) for url, content in zip(urls, responses)]
         results = await asyncio.gather(*parse_tasks)
         
         # Flatten the list of lists
