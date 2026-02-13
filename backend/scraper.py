@@ -23,38 +23,47 @@ async def fetch_feed(client, url):
 
 def extract_image(entry):
     """
-    Extract the best possible image from an RSS entry.
-    Checks enclosures, media tags, and finally the description via BeautifulSoup.
+    Extract the best possible image from an RSS entry with enhanced robustness.
     """
-    # 1. Check enclosures
+    # 1. Direct 'image' or 'links' check
+    if 'image' in entry and isinstance(entry.image, dict):
+        return entry.image.get('href') or entry.image.get('url')
+
+    # 2. Check enclosures
     if 'enclosures' in entry:
         for enclosure in entry.enclosures:
             if enclosure.get('type', '').startswith('image/'):
                 return enclosure.get('href')
 
-    # 2. Check media content/thumbnails (from common RSS extensions)
+    # 3. Check media content/thumbnails (common in media RSS)
     if 'media_content' in entry:
         for content in entry.media_content:
-            if 'url' in content:
+            if 'url' in content and (content.get('medium') == 'image' or content.get('type', '').startswith('image/')):
+                return content['url']
+            elif 'url' in content: # Default to any URL if no medium specified
                 return content['url']
     
     if 'media_thumbnail' in entry:
-        return entry.media_thumbnail[0].get('url')
+        for thumb in entry.media_thumbnail:
+            if 'url' in thumb:
+                return thumb['url']
 
-    # 3. Fallback: Parse description HTML for <img> tags
-    if 'description' in entry:
-        soup = BeautifulSoup(entry.description, 'lxml')
-        img = soup.find('img')
-        if img and img.get('src'):
-            return img.get('src')
+    # 4. Parse description or summary HTML for <img> tags
+    for field in ['description', 'summary', 'content']:
+        content_val = ""
+        if field == 'content' and 'content' in entry:
+            content_val = "".join([c.value for c in entry.content])
+        elif field in entry:
+            content_val = entry[field]
             
-    # 4. Secondary Fallback: Parse content if available
-    if 'content' in entry:
-        for c in entry.content:
-            soup = BeautifulSoup(c.value, 'lxml')
+        if content_val:
+            soup = BeautifulSoup(content_val, 'lxml')
             img = soup.find('img')
             if img and img.get('src'):
-                return img.get('src')
+                src = img.get('src')
+                # Ignore small tracking pixels or icons
+                if not any(x in src.lower() for x in ['pixel', 'tracker', 'icon', 'logo.png']):
+                    return src
 
     return None
 
@@ -89,7 +98,7 @@ async def parse_feed(url, html_content):
     # Get the site name from the feed title if possible
     site_name = feed.feed.get('title', url.split('/')[2])
 
-    for entry in feed.entries[:10]: # Limit to top 10 items per feed
+    for entry in feed.entries[:15]: # Slightly higher limit since we will filter
         title = entry.get('title', 'No Title')
         
         # Simple language filter: Check for Bengali characters (\u0980-\u09FF)
@@ -99,6 +108,10 @@ async def parse_feed(url, html_content):
 
         image_url = extract_image(entry)
         
+        # MANDATORY IMAGE FILTER: Discard any post that doesn't have a valid image
+        if not image_url or not (image_url.startswith('http')):
+            continue
+
         # Clean up summary
         summary = ""
         if 'description' in entry:
