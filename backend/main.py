@@ -89,7 +89,7 @@ async def analyze_image(url: str):
 async def get_status():
     return {
         "status": "online",
-        "cache_age": int(time.time() - cache["last_updated"]) if cache["last_updated"] > 0 else None
+        "timestamp": time.time()
     }
 
 if __name__ == "__main__":

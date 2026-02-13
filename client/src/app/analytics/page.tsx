@@ -52,8 +52,12 @@ function AnalyticsContent() {
     }, [isReport, image]);
 
     if (isReport) {
-        const trustScore = parseFloat(score || '0');
-        const isManipulated = status === 'manipulated';
+        // Use live analysis results if available, otherwise fallback to URL params
+        const liveScore = analysisResult?.status === 'success' ? analysisResult.trust_score : parseFloat(score || '0');
+        const liveStatus = analysisResult?.status === 'success' ? (analysisResult.prediction === 'FAKE' ? 'manipulated' : 'verified') : status;
+
+        const trustScore = liveScore;
+        const isManipulated = liveStatus === 'manipulated';
         const accentColor = isManipulated ? '#ef4444' : '#10b981';
 
         let domain = 'unknown-source.net';
@@ -68,14 +72,18 @@ function AnalyticsContent() {
                         <div>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                                 <div style={{ padding: '0.4rem', background: `${accentColor}22`, borderRadius: '8px' }}>
-                                    {isManipulated ? <ShieldAlert color={accentColor} size={20} /> : <ShieldCheck color={accentColor} size={20} />}
+                                    {analyzing ? <RefreshCw className="animate-spin" color="#3b82f6" size={20} /> : (isManipulated ? <ShieldAlert color={accentColor} size={20} /> : <ShieldCheck color={accentColor} size={20} />)}
                                 </div>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: accentColor, letterSpacing: '0.2em' }}>COMBINED TRUST ARCHITECTURE</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: analyzing ? '#3b82f6' : accentColor, letterSpacing: '0.2em' }}>
+                                    {analyzing ? 'NEURAL SCAN IN PROGRESS' : 'COMBINED TRUST ARCHITECTURE'}
+                                </span>
                             </div>
                             <h2 style={{ fontSize: '2.2rem', fontWeight: 800, lineHeight: 1.1 }}>Intelligence Dossier</h2>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: accentColor, lineHeight: 1 }}>{Math.round(trustScore * 100)}%</div>
+                            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: analyzing ? 'rgba(255,255,255,0.2)' : accentColor, lineHeight: 1 }}>
+                                {analyzing ? '---' : `${Math.round(trustScore * 100)}%`}
+                            </div>
                             <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontWeight: 800 }}>AGGREGATE PROBABILITY</div>
                         </div>
                     </div>
