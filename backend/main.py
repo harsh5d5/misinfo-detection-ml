@@ -3,8 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from scraper import get_sampled_news, get_all_news
 import uvicorn
 import time
+import httpx
+from engine.forensics import ForensicAnalyzer
 
 app = FastAPI(title="Intelligence Feed API")
+
+# Initialize Forensic Analyzer
+analyzer = None
+try:
+    analyzer = ForensicAnalyzer()
+    print("Forensic AI Core Loaded Successfully")
+except Exception as e:
+    print(f"CRITICAL: Forensic AI Core failed to load: {e}")
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
@@ -54,6 +64,26 @@ async def get_feed():
             "status": "error",
             "message": str(e)
         }
+
+@app.get("/api/analyze-image")
+async def analyze_image(url: str):
+    if not analyzer:
+        return {"status": "error", "message": "Neural Core Offline"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Add headers to avoid some site blocks
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            resp = await client.get(url, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                return {"status": "error", "message": f"Source fetch failed: {resp.status_code}"}
+            
+            result = analyzer.analyze_bytes(resp.content)
+            return result
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return {"status": "error", "message": f"Analysis crashed: {str(e)}"}
 
 @app.get("/api/status")
 async def get_status():
