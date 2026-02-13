@@ -5,3 +5,10 @@ beautifulsoup4
 httpx
 lxml
 python-multipart
+opencv-python-headless
+numpy
+scikit-learn
+scikit-image
+pandas
+pillow
+xgboost

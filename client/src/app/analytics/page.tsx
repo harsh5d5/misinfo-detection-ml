@@ -4,7 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import PillNav from "@/components/PillNav";
 import { Share2, AlertCircle, RefreshCw, ShieldCheck, ShieldAlert, Cpu, BarChart3, Fingerprint, Zap, LayoutGrid } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { fetchLiveFeed, NewsItem } from '@/lib/api';
+import { fetchLiveFeed, NewsItem, analyzeImage } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
 
 function AnalyticsContent() {
@@ -12,6 +12,8 @@ function AnalyticsContent() {
     const [nodeCount, setNodeCount] = useState<number>(0);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'image' | 'text'>('image');
+    const [analysisResult, setAnalysisResult] = useState<any>(null);
+    const [analyzing, setAnalyzing] = useState(false);
 
     const title = searchParams.get('title');
     const status = searchParams.get('status');
@@ -36,6 +38,18 @@ function AnalyticsContent() {
         };
         getStats();
     }, []);
+
+    useEffect(() => {
+        if (isReport && image) {
+            const runDeepScan = async () => {
+                setAnalyzing(true);
+                const res = await analyzeImage(image);
+                setAnalysisResult(res);
+                setAnalyzing(false);
+            };
+            runDeepScan();
+        }
+    }, [isReport, image]);
 
     if (isReport) {
         const trustScore = parseFloat(score || '0');
@@ -132,10 +146,10 @@ function AnalyticsContent() {
 
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                                     {[
-                                        { label: 'Neural Noise', val: isManipulated ? 'HIGH' : 'LOW', icon: <Zap size={14} />, color: isManipulated ? '#ef4444' : '#10b981' },
-                                        { label: 'Pixel Geometry', val: isManipulated ? 'ANOMALOUS' : 'NOMINAL', icon: <LayoutGrid size={14} />, color: isManipulated ? '#ef4444' : '#10b981' },
-                                        { label: 'Light Alignment', val: 'CONSISTENT', icon: <RefreshCw size={14} />, color: '#10b981' },
-                                        { label: 'Metadata Sync', val: 'OFFLINE', icon: <AlertCircle size={14} />, color: '#f59e0b' }
+                                        { label: 'Neural Noise', val: analysisResult?.metrics ? (analysisResult.metrics.noise_mean * 10).toFixed(2) : (isManipulated ? 'HIGH' : 'LOW'), icon: <Zap size={14} />, color: isManipulated ? '#ef4444' : '#10b981' },
+                                        { label: 'ELA Variance', val: analysisResult?.metrics ? analysisResult.metrics.ela_mean.toFixed(2) : (isManipulated ? 'ANOMALOUS' : 'NOMINAL'), icon: <LayoutGrid size={14} />, color: isManipulated ? '#ef4444' : '#10b981' },
+                                        { label: 'FFT Patterns', val: analysisResult?.metrics ? analysisResult.metrics.fft_mean.toFixed(1) : 'PENDING', icon: <RefreshCw size={14} />, color: '#10b981' },
+                                        { label: 'Texture Rank', val: analysisResult?.metrics ? (analysisResult.metrics.texture_variance / 100).toFixed(1) : 'OFFLINE', icon: <AlertCircle size={14} />, color: '#f59e0b' }
                                     ].map((stat, i) => (
                                         <div key={i} className="glass" style={{ padding: '0.75rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                             <div style={{ color: stat.color }}>{stat.icon}</div>
@@ -150,13 +164,19 @@ function AnalyticsContent() {
                                 <div className="glass" style={{ padding: '1.25rem', borderRadius: '24px', background: isManipulated ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)', border: `1px solid ${accentColor}44` }}>
                                     <div style={{ fontSize: '0.65rem', color: accentColor, fontWeight: 900, letterSpacing: '0.1em', marginBottom: '0.5rem' }}>IMAGE AUTHENTICITY VERDICT</div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                        <div style={{ fontSize: '1.8rem', fontWeight: 900, color: accentColor }}>{isManipulated ? 'FAKE / MANIPULATED' : 'REAL / AUTHENTIC'}</div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 900, color: accentColor }}>
+                                            {analyzing ? 'SCANNING PIXELS...' : (analysisResult?.prediction || (isManipulated ? 'FAKE / MANIPULATED' : 'REAL / AUTHENTIC'))}
+                                        </div>
                                         <div style={{ padding: '0.4rem', background: `${accentColor}22`, borderRadius: '50%' }}>
-                                            {isManipulated ? <ShieldAlert color={accentColor} size={24} /> : <ShieldCheck color={accentColor} size={24} />}
+                                            {analyzing ? <RefreshCw className="animate-spin" size={24} color={accentColor} /> : (isManipulated ? <ShieldAlert color={accentColor} size={24} /> : <ShieldCheck color={accentColor} size={24} />)}
                                         </div>
                                     </div>
                                     <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginTop: '0.5rem', lineHeight: 1.4 }}>
-                                        {isManipulated ? "Forensic patterns detect synthetic pixel clusters and inconsistent noise variances typical of generative AI or manual cloning." : "Standard sensor noise and consistent pixel geometry confirmed across all quadrants. No traces of neural tampering detected."}
+                                        {analyzing
+                                            ? "Deep neural layers are cross-referencing pixel inconsistencies and compression artifacts..."
+                                            : (analysisResult?.prediction === 'FAKE'
+                                                ? "Neural patterns detected synthetic pixel clusters and inconsistent noise variances typical of generative AI."
+                                                : "Standard sensor noise and consistent pixel geometry confirmed across all quadrants.")}
                                     </p>
                                 </div>
                             </div>
