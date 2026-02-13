@@ -85,13 +85,34 @@ class ForensicAnalyzer:
 
         # 4. Predict
         probability = self.model.predict_proba(X)[0] # [Prob_Real, Prob_Fake]
-        prediction = self.model.predict(X)[0]
         
-        trust_score = float(probability[0]) # Authentic percentage
+        # CALIBRATION LAYER:
+        # Web images are almost always "filtered" or compressed.
+        # If the model is too strict, we adjust the probability curve.
+        raw_trust = float(probability[0])
         
+        # If the image has high FFT but low ELA variance, it's likely just "Sharpened" (Real)
+        # rather than "Spliced" (Fake).
+        is_sharpened_only = combined_features.get('ela_mean', 0) < 5.0 and combined_features.get('fft_mean', 0) > 100
+        
+        if is_sharpened_only:
+            # Boost the trust score for sharpened but otherwise clean images
+            calibrated_trust = min(0.95, raw_trust + 0.3)
+        else:
+            calibrated_trust = raw_trust
+
+        # Determine final verdict based on calibrated score
+        if calibrated_trust > 0.7:
+            verdict = "REAL"
+        elif calibrated_trust > 0.4:
+            verdict = "PROCESSED / EDITED"
+        else:
+            verdict = "FAKE / MANIPULATED"
+
         return {
-            "prediction": "REAL" if prediction == 0 else "FAKE",
-            "trust_score": trust_score,
+            "prediction": verdict,
+            "trust_score": calibrated_trust,
             "metrics": combined_features,
+            "raw_probability": [float(p) for p in probability],
             "status": "success"
         }
