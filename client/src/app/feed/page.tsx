@@ -65,8 +65,7 @@ const NewsCard = ({ news }: { news: NewsItem }) => {
                             alignItems: 'center',
                             gap: '0.3rem'
                         }}>
-                            <CheckCircle2 size={10} />
-                            {news.ai_status === 'verified' ? 'NEURAL VERIFIED' : 'AI MANIPULATED'}
+                            {news.ai_status === 'verified' ? 'NEURAL VERIFIED' : news.ai_status === 'uncertain' ? 'PROCESSED / EDITED' : 'AI MANIPULATED'}
                         </div>
                     )}
                     {news.is_breaking && (
