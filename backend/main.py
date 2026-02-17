@@ -52,13 +52,15 @@ async def get_feed():
         for item in news_items:
             # Create a unique but stable seed based on the title
             seed = int(hashlib.md5(item['title'].encode()).hexdigest(), 16) % 1000
-            is_fake = (seed % 20) == 0 # 5% chance
-            
-            if is_fake:
-                item['ai_score'] = round(0.1 + (seed % 20) / 100, 2)
+            # 3-Tier Simulation: 5% Manipulated, 15% Edited, 80% Verified
+            if (seed % 20) == 0: # 5% chance
+                item['ai_score'] = round(0.1 + (seed % 20) / 100, 2) # Range 0.1 - 0.3
                 item['ai_status'] = "manipulated"
-            else:
-                item['ai_score'] = round(0.85 + (seed % 10) / 100, 2)
+            elif (seed % 5) == 0: # 20% chance (total including 5% above, so ~15% net)
+                item['ai_score'] = round(0.40 + (seed % 25) / 100, 2) # Range 0.4 - 0.65
+                item['ai_status'] = "uncertain"
+            else: # 80% chance
+                item['ai_score'] = round(0.85 + (seed % 10) / 100, 2) # Range 0.85 - 0.95
                 item['ai_status'] = "verified"
 
         # Categorize
