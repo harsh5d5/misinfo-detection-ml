@@ -199,7 +199,7 @@ const NewsCard = ({ news }: { news: NewsItem }) => {
                         SOURCE
                     </a>
                     <button
-                        onClick={() => window.location.href = `/analytics?title=${encodeURIComponent(news.title)}&status=${news.ai_status}&score=${news.ai_score}&image=${encodeURIComponent(news.image || '')}&summary=${encodeURIComponent(news.summary || '')}`}
+                        onClick={() => window.location.href = `/analytics?title=${encodeURIComponent(news.title)}&status=${news.ai_status}&score=${news.ai_score}&image=${encodeURIComponent(news.image || '')}&summary=${encodeURIComponent(news.summary || '')}&link=${encodeURIComponent(news.link)}`}
                         style={{
                             flex: 1,
                             display: 'flex',

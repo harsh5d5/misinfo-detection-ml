@@ -5,16 +5,25 @@ import uvicorn
 import time
 import httpx
 from engine.forensics import ForensicAnalyzer
+from engine.text_analyzer import TextForensics
 
 app = FastAPI(title="Intelligence Feed API")
 
-# Initialize Forensic Analyzer
+# Initialize Forensic Analyzer (Image)
 analyzer = None
 try:
     analyzer = ForensicAnalyzer()
     print("Forensic AI Core Loaded Successfully")
 except Exception as e:
     print(f"CRITICAL: Forensic AI Core failed to load: {e}")
+
+# Initialize Text Forensic Analyzer
+text_analyzer = None
+try:
+    text_analyzer = TextForensics()
+    print("Text Forensic AI Core Loaded Successfully")
+except Exception as e:
+    print(f"CRITICAL: Text Forensic AI Core failed to load: {e}")
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
@@ -118,6 +127,21 @@ async def analyze_image(url: str):
         print(f"DEBUG: Analysis error: {str(e)}")
         print(traceback.format_exc())
         return {"status": "error", "message": f"Analysis crashed: {str(e)}"}
+
+@app.get("/api/verify-news")
+async def verify_news(title: str, url: str = "", description: str = ""):
+    """Runs the full TextForensics pipeline on a news article."""
+    if not text_analyzer:
+        return {"status": "error", "message": "Text Neural Core Offline"}
+    
+    try:
+        result = text_analyzer.get_truth_score(url, title, description)
+        return result
+    except Exception as e:
+        import traceback
+        print(f"Text analysis error: {str(e)}")
+        print(traceback.format_exc())
+        return {"status": "error", "message": f"Analysis failed: {str(e)}"}
 
 @app.get("/api/status")
 async def get_status():

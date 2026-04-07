@@ -6,9 +6,10 @@ import numpy as np
 from PIL import Image
 import io
 
-# Add engine/src to path for imports
+# Resolve paths relative to project root
 current_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.join(current_dir, 'src')
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+src_dir = os.path.join(project_root, 'model', 'image_model', 'training', 'src')
 if src_dir not in sys.path:
     sys.path.append(src_dir)
 
@@ -18,14 +19,12 @@ try:
     from forgery_detectors import ForgeryDetectors
 except ImportError as e:
     print(f"Error importing forensic modules: {e}")
-    # Fallback paths if needed
-    preprocess_path = os.path.join(src_dir, 'preprocessing.py')
-    print(f"Checking {preprocess_path}: {os.path.exists(preprocess_path)}")
+    print(f"Tried loading from: {src_dir}")
 
 class ForensicAnalyzer:
     def __init__(self, model_path=None):
         if model_path is None:
-            model_path = os.path.join(current_dir, 'forensic_model.pkl')
+            model_path = os.path.join(project_root, 'model', 'image_model', 'forensic_model.pkl')
             
         self.model_path = model_path
         self.preprocessor = ImagePreprocessor()

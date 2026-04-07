@@ -4,7 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import PillNav from "@/components/PillNav";
 import { Share2, AlertCircle, RefreshCw, ShieldCheck, ShieldAlert, Cpu, BarChart3, Fingerprint, Zap, LayoutGrid } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { fetchLiveFeed, NewsItem, analyzeImage } from '@/lib/api';
+import { fetchLiveFeed, NewsItem, analyzeImage, verifyNews, TextForensicResult } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
 
 function AnalyticsContent() {
@@ -14,12 +14,15 @@ function AnalyticsContent() {
     const [activeTab, setActiveTab] = useState<'image' | 'text'>('image');
     const [analysisResult, setAnalysisResult] = useState<any>(null);
     const [analyzing, setAnalyzing] = useState(false);
+    const [textResult, setTextResult] = useState<TextForensicResult | null>(null);
+    const [textAnalyzing, setTextAnalyzing] = useState(false);
 
     const title = searchParams.get('title');
     const status = searchParams.get('status');
     const score = searchParams.get('score');
     const image = searchParams.get('image');
     const summary = searchParams.get('summary');
+    const domain = searchParams.get('link') ? new URL(searchParams.get('link')!).hostname : 'UNVERIFIED';
 
     const isReport = !!title;
 
@@ -49,19 +52,32 @@ function AnalyticsContent() {
             };
             runDeepScan();
         }
-    }, [isReport, image]);
+
+        if (isReport && title) {
+            const runTextScan = async () => {
+                setTextAnalyzing(true);
+                const link = searchParams.get('link') || '';
+                const res = await verifyNews(title, link, summary || '');
+                setTextResult(res);
+                setTextAnalyzing(false);
+            };
+            runTextScan();
+        }
+    }, [isReport, image, title, summary]);
 
     if (isReport) {
-        // Correct logic to sync with the new AI engine verdict strings
-        const aiVerdict = analysisResult?.prediction || "";
-        const isFake = aiVerdict === "FAKE / MANIPULATED";
-        const isEdited = aiVerdict === "PROCESSED / EDITED";
+        const imageScore = analysisResult?.status === 'success' ? analysisResult.trust_score : parseFloat(score || '0');
+        const textScore = textResult?.status === 'success' ? textResult.truth_score : imageScore;
+        const trustScore = (imageScore + textScore) / 2;
 
-        const liveStatus = analysisResult?.status === 'success'
-            ? (isFake ? 'manipulated' : (isEdited ? 'uncertain' : 'verified'))
-            : status;
+        // Sync Verdict Strings
+        const imageVerdict = analysisResult?.prediction || "";
+        const textVerdict = textResult?.prediction || "";
+        
+        const isFake = imageVerdict === "FAKE / MANIPULATED" || textVerdict === "FAKE / MANIPULATED";
+        const isEdited = imageVerdict === "PROCESSED / EDITED" || textVerdict === "PROCESSED / EDITED";
 
-        const trustScore = analysisResult?.status === 'success' ? analysisResult.trust_score : parseFloat(score || '0');
+        const liveStatus = (isFake ? 'manipulated' : (isEdited ? 'uncertain' : 'verified'));
         const isManipulated = liveStatus === 'manipulated';
         const isUncertain = liveStatus === 'uncertain';
 
@@ -75,32 +91,52 @@ function AnalyticsContent() {
                 <PillNav logo="/next.svg" items={navItems} activeHref="/analytics" baseColor="#3b82f6" pillColor="#05070a" pillTextColor="#3b82f6" hoveredPillTextColor="white" />
 
                 <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                        <div>
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem', gap: '2rem' }}>
+                        {/* 🖼️ LEFT POD: Visual Intel */}
+                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} style={{ flex: 1, textAlign: 'left', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 900, color: analyzing ? 'rgba(255,255,255,0.1)' : ((analysisResult?.trust_score || 0) > 0.7 ? '#10b981' : '#ef4444'), lineHeight: 1 }}>
+                                {analyzing ? <RefreshCw className="animate-spin" size={24} /> : `${Math.round((analysisResult?.trust_score || 0) * 100)}%`}
+                            </div>
+                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', fontWeight: 800, marginTop: '0.4rem', letterSpacing: '0.1em' }}>VISUAL DNA SCAN</div>
+                        </motion.div>
+
+                        {/* 🧠 CENTER POD: Combined Nexus */}
+                        <div style={{ flex: 1.5, textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
                                 <div style={{ padding: '0.4rem', background: `${accentColor}22`, borderRadius: '8px' }}>
-                                    {analyzing ? (
+                                    {analyzing || textAnalyzing ? (
                                         <RefreshCw className="animate-spin" color="#3b82f6" size={20} />
-                                    ) : isManipulated ? (
-                                        <ShieldAlert color={accentColor} size={20} />
-                                    ) : isUncertain ? (
-                                        <AlertCircle color={accentColor} size={20} />
                                     ) : (
                                         <ShieldCheck color={accentColor} size={20} />
                                     )}
                                 </div>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: analyzing ? '#3b82f6' : accentColor, letterSpacing: '0.2em' }}>
-                                    {analyzing ? 'NEURAL SCAN IN PROGRESS' : 'COMBINED TRUST ARCHITECTURE'}
+                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: (analyzing || textAnalyzing) ? '#3b82f6' : accentColor, letterSpacing: '0.2em' }}>
+                                    {(analyzing || textAnalyzing) ? 'COMBINED SCAN ACTIVE' : 'AGGREGATE PROBABILITY'}
                                 </span>
                             </div>
-                            <h2 style={{ fontSize: '2.2rem', fontWeight: 800, lineHeight: 1.1 }}>Intelligence Dossier</h2>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: analyzing ? 'rgba(255,255,255,0.2)' : accentColor, lineHeight: 1 }}>
-                                {analyzing ? '---' : `${Math.round(trustScore * 100)}%`}
+                            <h2 style={{ 
+                                fontSize: '4.5rem', 
+                                fontWeight: 900, 
+                                lineHeight: 1, 
+                                color: (analyzing || textAnalyzing) ? 'rgba(255,255,255,0.1)' : accentColor, 
+                                textShadow: `0 0 30px ${accentColor}33`,
+                                letterSpacing: '-0.02em'
+                            }}>
+                                {(analyzing || textAnalyzing) ? '...' : `${Math.round(trustScore * 100)}%`}
+                            </h2>
+                            <div style={{ fontSize: '0.6rem', color: (analyzing || textAnalyzing) ? 'rgba(59, 130, 246, 0.5)' : accentColor, fontWeight: 900, marginTop: '0.25rem', letterSpacing: '0.3em' }}>
+                                FUSED ANALYSIS: VISUAL + CONTEXTUAL
                             </div>
-                            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontWeight: 800 }}>AGGREGATE PROBABILITY</div>
+                            <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', fontWeight: 800, marginTop: '0.5rem', letterSpacing: '0.2em' }}>NEURAL TRUST VERDICT: {liveStatus?.toUpperCase() || 'UNCERTAIN'}</div>
                         </div>
+
+                        {/* 📝 RIGHT POD: Contextual Intel */}
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} style={{ flex: 1, textAlign: 'right', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 900, color: textAnalyzing ? 'rgba(255,255,255,0.1)' : ((textResult?.truth_score || 0) > 0.7 ? '#3b82f6' : '#f59e0b'), lineHeight: 1 }}>
+                                {textAnalyzing ? <RefreshCw className="animate-spin" size={24} /> : `${Math.round((textResult?.truth_score || 0) * 100)}%`}
+                            </div>
+                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', fontWeight: 800, marginTop: '0.4rem', letterSpacing: '0.1em' }}>CONTEXTUAL INTEL</div>
+                        </motion.div>
                     </div>
 
                     {/* SUB-NAVBAR TOGGLE */}
@@ -167,18 +203,27 @@ function AnalyticsContent() {
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
                                     {[
                                         { label: 'Neural Noise', val: analysisResult?.metrics ? (analysisResult.metrics.noise_mean * 10).toFixed(2) : (isManipulated ? 'HIGH' : 'LOW'), icon: <Zap size={14} />, color: isManipulated ? '#ef4444' : '#10b981' },
                                         { label: 'ELA Variance', val: analysisResult?.metrics ? analysisResult.metrics.ela_mean.toFixed(2) : (isManipulated ? 'ANOMALOUS' : 'NOMINAL'), icon: <LayoutGrid size={14} />, color: isManipulated ? '#ef4444' : '#10b981' },
                                         { label: 'FFT Patterns', val: analysisResult?.metrics ? analysisResult.metrics.fft_mean.toFixed(1) : 'PENDING', icon: <RefreshCw size={14} />, color: '#10b981' },
                                         { label: 'Texture Rank', val: analysisResult?.metrics ? (analysisResult.metrics.texture_variance / 100).toFixed(1) : 'OFFLINE', icon: <AlertCircle size={14} />, color: '#f59e0b' }
                                     ].map((stat, i) => (
-                                        <div key={i} className="glass" style={{ padding: '0.75rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                            <div style={{ color: stat.color }}>{stat.icon}</div>
+                                        <div key={i} className="glass" style={{ 
+                                            padding: '1rem', 
+                                            borderRadius: '16px', 
+                                            background: 'rgba(255,255,255,0.02)',
+                                            border: `1px solid ${stat.color}33`, 
+                                            display: 'flex', 
+                                            flexDirection: 'column', 
+                                            gap: '0.6rem',
+                                            boxShadow: `0 4px 15px rgba(0,0,0,0.2), inset 0 0 10px ${stat.color}05`
+                                        }}>
+                                            <div style={{ color: stat.color, background: `${stat.color}11`, width: 'fit-content', padding: '0.4rem', borderRadius: '8px' }}>{stat.icon}</div>
                                             <div>
-                                                <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.3)', fontWeight: 800 }}>{stat.label.toUpperCase()}</div>
-                                                <div style={{ fontSize: '0.7rem', color: stat.color, fontWeight: 900 }}>{stat.val}</div>
+                                                <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', fontWeight: 800, letterSpacing: '0.05em' }}>{stat.label.toUpperCase()}</div>
+                                                <div style={{ fontSize: '1rem', color: stat.color, fontWeight: 900, fontFamily: 'monospace' }}>{stat.val}</div>
                                             </div>
                                         </div>
                                     ))}
@@ -206,68 +251,159 @@ function AnalyticsContent() {
                         ) : (
                             /* SECTION 2: CONTEXTUAL INTELLIGENCE [CTX-INT] */
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '800px', margin: '0 auto' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.75rem' }}>
-                                    <div style={{ width: '12px', height: '12px', background: '#3b82f6', borderRadius: '2px' }} />
-                                    <h3 style={{ fontSize: '1rem', fontWeight: 900, letterSpacing: '0.05em' }}>[CTX-INT] TEXT & SOURCE INTELLIGENCE</h3>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid rgba(59, 130, 246, 0.1)', paddingBottom: '0.75rem' }}>
+                                    <div style={{ width: '12px', height: '12px', background: '#3b82f6', borderRadius: '2px', boxShadow: '0 0 10px #3b82f6' }} />
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 900, letterSpacing: '0.05em', color: '#3b82f6' }}>[CTX-INT] TEXT & SOURCE INTELLIGENCE</h3>
                                 </div>
 
-                                <div className="glass" style={{ padding: '2rem', borderRadius: '24px', background: 'rgba(59, 130, 246, 0.03)', border: '1px solid rgba(59, 130, 246, 0.1)' }}>
-                                    <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <motion.div 
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.5, staggerChildren: 0.1 }}
+                                    className="glass" 
+                                    style={{ padding: '2rem', borderRadius: '24px', background: 'rgba(59, 130, 246, 0.03)', border: '1px solid rgba(59, 130, 246, 0.1)', position: 'relative', overflow: 'hidden' }}
+                                >
+                                    {/* Scanline Effect Overlay */}
+                                    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02))', backgroundSize: '100% 4px, 3px 100%', opacity: 0.3 }} />
+                                    
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                         <div style={{ fontSize: '0.65rem', color: '#3b82f6', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '0.25rem' }}>SOURCE AUTHENTICITY [DOMAIN]</div>
                                         <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                             <Share2 size={16} color="#3b82f6" /> {domain}
                                         </div>
-                                    </div>
+                                    </motion.div>
 
-                                    <div style={{ marginBottom: '1.5rem' }}>
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} style={{ marginBottom: '1.5rem' }}>
                                         <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '0.5rem' }}>HEADLINE VERIFICATION [TITLE]</div>
                                         <h4 style={{ fontSize: '1.2rem', fontWeight: 700, lineHeight: 1.3, color: 'white' }}>{title}</h4>
-                                    </div>
+                                    </motion.div>
 
-                                    <div>
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
                                         <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '0.5rem' }}>NARRATIVE CONTENT [DESCRIPTION]</div>
                                         <p style={{ fontSize: '0.95rem', color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px', borderLeft: '2px solid #3b82f6' }}>{summary}</p>
+                                    </motion.div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+                                        {[
+                                            { label: 'Clickbait Shield', val: textResult?.details.title.metrics.clickbait && textResult.details.title.metrics.clickbait > 0.8 ? 'CLEAN' : 'ALERT', icon: <ShieldCheck size={14} />, color: textResult?.details.title.metrics.clickbait && textResult.details.title.metrics.clickbait > 0.8 ? '#10b981' : '#ef4444' },
+                                            { label: 'Neural Tone', val: textResult?.details.title.metrics.tone && textResult.details.title.metrics.tone > 0.8 ? 'FACTUAL' : 'SENSATIONAL', icon: <BarChart3 size={14} />, color: textResult?.details.title.metrics.tone && textResult.details.title.metrics.tone > 0.8 ? '#3b82f6' : '#f59e0b' },
+                                            { label: 'Narrative Align', val: textResult?.details.description.metrics.alignment ? (textResult.details.description.metrics.alignment * 100).toFixed(0) + '%' : 'PENDING', icon: <Fingerprint size={14} />, color: '#10b981' },
+                                            { label: 'Info Density', val: textResult?.details.description.metrics.density ? (textResult.details.description.metrics.density * 10).toFixed(1) : 'PENDING', icon: <Cpu size={14} />, color: '#3b82f6' }
+                                        ].map((stat, i) => (
+                                            <div key={i} className="glass" style={{ 
+                                                padding: '1rem', 
+                                                borderRadius: '16px', 
+                                                background: 'rgba(255,255,255,0.02)',
+                                                border: `1px solid ${stat.color}33`, 
+                                                display: 'flex', 
+                                                flexDirection: 'column', 
+                                                gap: '0.6rem',
+                                                boxShadow: `0 4px 15px rgba(0,0,0,0.2), inset 0 0 10px ${stat.color}05`
+                                            }}>
+                                                <div style={{ color: stat.color, background: `${stat.color}11`, width: 'fit-content', padding: '0.4rem', borderRadius: '8px' }}>{stat.icon}</div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', fontWeight: 800, letterSpacing: '0.05em' }}>{stat.label.toUpperCase()}</div>
+                                                    <div style={{ fontSize: '1rem', color: stat.color, fontWeight: 900, fontFamily: 'monospace' }}>{stat.val}</div>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
                                         <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                             <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', fontWeight: 800, marginBottom: '0.25rem' }}>NLP SENTIMENT</div>
-                                            <div style={{ color: '#10b981', fontWeight: 900, fontSize: '0.8rem' }}>NEUTRAL / FACTUAL</div>
+                                            <div style={{ 
+                                                color: textResult?.details.title.metrics.sentiment && textResult.details.title.metrics.sentiment > 0.8 ? '#10b981' : '#f59e0b', 
+                                                fontWeight: 900, 
+                                                fontSize: '0.8rem' 
+                                            }}>
+                                                {textAnalyzing ? 'ANALYZING...' : (textResult?.details.title.metrics.sentiment && textResult.details.title.metrics.sentiment > 0.8 ? 'NEUTRAL / FACTUAL' : 'BIASED / OPINIONATED')}
+                                            </div>
                                         </div>
                                         <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                             <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', fontWeight: 800, marginBottom: '0.25rem' }}>REPUTATION RANK</div>
-                                            <div style={{ color: '#3b82f6', fontWeight: 900, fontSize: '0.8rem' }}>TIER-1 SOURCE</div>
+                                            <div style={{ color: textResult?.source_credibility && textResult.source_credibility > 0.7 ? '#3b82f6' : '#ef4444', fontWeight: 900, fontSize: '0.8rem' }}>
+                                                {textAnalyzing ? 'SYNCING...' : (textResult?.source_credibility && textResult.source_credibility > 0.7 ? 'TIER-1 SOURCE' : 'UNTRUSTED')}
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div style={{ padding: '1.25rem', borderRadius: '16px', background: isManipulated ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)', border: `1px solid ${isManipulated ? '#ef444444' : '#3b82f644'}` }}>
-                                        <div style={{ fontSize: '0.65rem', color: isManipulated ? '#ef4444' : '#3b82f6', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '0.5rem' }}>NEWS ACCURACY VERDICT</div>
-                                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: isManipulated ? '#ef4444' : 'white' }}>
-                                            {isManipulated ? 'POTENTIAL MISINFORMATION' : 'FACTUALLY CONSISTENT'}
+                                    <motion.div 
+                                        initial={{ opacity: 0, scale: 0.95 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: 0.6 }}
+                                        style={{ padding: '1.25rem', borderRadius: '16px', background: textResult?.prediction === 'FAKE / MANIPULATED' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)', border: `1px solid ${textResult?.prediction === 'FAKE / MANIPULATED' ? '#ef444444' : '#10b98144'}` }}
+                                    >
+                                        <div style={{ fontSize: '0.65rem', color: textResult?.prediction === 'FAKE / MANIPULATED' ? '#ef4444' : '#10b981', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '0.5rem' }}>NEWS ACCURACY VERDICT</div>
+                                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: textResult?.prediction === 'FAKE / MANIPULATED' ? '#ef4444' : 'white' }}>
+                                            {textAnalyzing ? 'AI PROCESSING...' : (textResult?.prediction || 'FACTUALLY CONSISTENT')}
                                         </div>
-                                        <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginTop: '0.4rem' }}>
-                                            {isManipulated
-                                                ? `The combination of multiple anomalies from ${domain} source and the detected visual manipulation suggests this narrative is intentionally deceptive.`
-                                                : `Content from ${domain} verified against global intelligence nodes. High topical consistency detected.`}
-                                        </p>
-                                    </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
+                                            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+                                                {textAnalyzing 
+                                                  ? "Neural layers are cross-referencing global intelligence nodes..."
+                                                  : (textResult?.prediction === 'FAKE / MANIPULATED' 
+                                                    ? `AI Pattern detected deception indicators from ${domain}.` 
+                                                    : `High topical consistency detected from ${domain}.`)}
+                                            </p>
+                                            {textResult && (
+                                                <div style={{ 
+                                                    background: 'rgba(59, 130, 246, 0.2)', 
+                                                    padding: '0.2rem 0.5rem', 
+                                                    borderRadius: '4px', 
+                                                    fontSize: '9px', 
+                                                    fontWeight: 900, 
+                                                    color: '#3b82f6', 
+                                                    whiteSpace: 'nowrap',
+                                                    animation: 'pulse 2s infinite' 
+                                                }}>
+                                                    AI CONFIDENCE: {Math.round(textResult.ai_pattern_score * 100)}%
+                                                </div>
+                                            )}
+                                        </div>
+                                    </motion.div>
 
-                                    <button style={{ marginTop: '1.5rem', width: '100%', padding: '1rem', borderRadius: '12px', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(59, 130, 246, 0.05))', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'all 0.2s ease' }} onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.25)' }} onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)' }}>
-                                        <Cpu size={18} />
-                                        CROSS-REFERENCE INTELLIGENCE
-                                    </button>
-                                </div>
+                                    {/* DYNAMIC TRUTH VELOCITY BAR */}
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.7 }}
+                                        style={{ marginTop: '2rem' }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <Cpu size={14} color="#3b82f6" />
+                                                <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em' }}>PROXIMITY RADAR: NEURAL TRUTH MATCH</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 900, color: (textResult?.truth_score || 0) > 0.7 ? '#10b981' : '#ef4444' }}>
+                                                {Math.round((textResult?.truth_score || 0) * 100)}%
+                                            </span>
+                                        </div>
+                                        <div style={{ height: '6px', background: 'rgba(255,255,255,0.03)', borderRadius: '100px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                            <motion.div 
+                                                initial={{ width: 0 }}
+                                                animate={{ width: `${(textResult?.truth_score || 0.5) * 100}%` }}
+                                                transition={{ duration: 2, ease: "easeOut", delay: 0.8 }}
+                                                style={{ 
+                                                    height: '100%', 
+                                                    background: `linear-gradient(90deg, #ef4444, #f59e0b, #10b981)`,
+                                                    backgroundSize: '800px 100%',
+                                                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.4)'
+                                                }} 
+                                            />
+                                        </div>
+                                        <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.2)', marginTop: '0.5rem', fontFamily: 'monospace', textAlign: 'center' }}>
+                                            [ VERIFICATION ENGINE: {textResult?.details.ai_engine || "XGBOOST V1.0"} ]
+                                        </div>
+                                    </motion.div>
+                                </motion.div>
                             </div>
                         )}
                     </motion.div>
 
                     {/* Report Footer */}
-                    <div style={{ marginTop: '3rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'rgba(255,255,255,0.4)' }}>NEURAL CORE V4.2 // SCAN ACTIVE</div>
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            <button style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', background: 'white', color: 'black', border: 'none', fontWeight: 900, fontSize: '0.7rem' }}>DOWNLOAD PDF</button>
-                            <button style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid rgba(255,255,255,0.1)', fontWeight: 900, fontSize: '0.7rem' }}>SHARE INTEL</button>
-                        </div>
+                    <div style={{ marginTop: '3rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2em' }}>NEURAL CORE V4.2 // SCAN ACTIVE // SYSTEM SECURE</div>
                     </div>
                 </div>
             </main>

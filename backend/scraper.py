@@ -9,7 +9,7 @@ import time
 import re
 
 # Path to the feeds file
-FEEDS_FILE = os.path.join(os.path.dirname(__file__), '..', 'scrap', 'xml_feeds.txt')
+FEEDS_FILE = os.path.join(os.path.dirname(__file__), 'feeds', 'xml_feeds.txt')
 
 def upscale_image_url(url):
     """
