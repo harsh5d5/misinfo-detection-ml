@@ -6,3 +6,10 @@ build/
 .env*
 *.pyc
 .ipynb_checkpoints/
+
+# Large files (exceed GitHub 50MB limit)
+Dataset/real_news.csv
+Dataset/labeled_training_data.csv
+Dataset/ultimate_training_data.csv
+Dataset/cleaned_news_dataset.csv
+feed_output.json
